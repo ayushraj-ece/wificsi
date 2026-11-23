@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f8fafc">
+<title>WiFi CSI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/app.css?v=6">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="dot" id="linkDot"></span>
+    <h1>WiFi&nbsp;CSI</h1>
+    <span class="sub" id="linkName">connecting…</span>
+  </div>
+  <div class="bar-stats">
+    <span class="chip"><b id="statRate">–</b><i>Hz</i></span>
+    <span class="chip"><b id="statRssi">–</b><i>dBm</i></span>
+    <span class="chip hide-sm"><b id="statNode">–</b><i>node</i></span>
+    <a class="ghost hide-sm" href="/history" title="Recorded history and sleep report">HISTORY</a>
+    <button class="ghost" id="btnRecord" title="Record raw session">REC</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- ---------------------------------------------------------- hero state -->
+  <section class="panel hero" id="hero">
+    <div class="hero-main">
+      <div class="state" id="stateLabel">CALIBRATING</div>
+      <div class="state-sub" id="stateSub">collecting baseline…</div>
+    </div>
+    <div class="hero-meters">
+      <div class="meter">
+        <div class="meter-head"><span>MOTION</span><b id="motionDb">0.0 dB</b></div>
+        <div class="bar-track"><div class="bar-fill motion" id="motionBar"></div></div>
+      </div>
+      <div class="meter">
+        <div class="meter-head"><span>VITALS</span><b id="vitalDb">0.0 dB</b></div>
+        <div class="bar-track"><div class="bar-fill vital" id="vitalBar"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ waterfall -->
+  <section class="panel grow">
+    <div class="panel-head ref-head">
+      <div class="head-title-group">
+        <span class="accent-bar"></span>
+        <div style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;">
+          <h2>Channel Response</h2>
+          <div class="csi-var-badge" id="csiVarIndicator" title="Real-time CSI amplitude deviation from rolling baseline">
+            <span class="csi-var-dot" id="csiVarDot"></span>
+            <span class="csi-var-title">Channel Variation:</span>
+            <span class="csi-var-state" id="csiVarState">Stable</span>
+            <span class="csi-var-val" id="csiVarVal">(Δ 0.0)</span>
+          </div>
+        </div>
+      </div>
+      <div class="head-right">
+        <div class="seg" id="csiModeToggle" title="Switch between raw CSI amplitude and baseline deviation">
+          <button class="seg-btn on" data-mode="raw">Raw CSI</button>
+          <button class="seg-btn" data-mode="variation">Channel Variation</button>
+        </div>
+        <span class="legend" id="viewLegend">sub-carrier ↑ · time →</span>
+        <div class="seg" id="viewToggle">
+          <button class="seg-btn on" data-view="2d">2D</button>
+          <button class="seg-btn" data-view="3d">3D</button>
+        </div>
+        <select id="rampSelect" class="mini">
+          <option value="turbo">turbo</option>
+          <option value="viridis">viridis</option>
+          <option value="inferno">inferno</option>
+        </select>
+      </div>
+    </div>
+    <div class="waterfall-container" style="position: relative; display: flex; flex-direction: column;">
+      <canvas id="waterfall" class="waterfall"></canvas>
+      <canvas id="surface" class="waterfall" hidden></canvas>
+      <div class="csi-legend-bar" id="csiVariationLegend" style="display: none;">
+        <div class="csi-legend-track"></div>
+        <div class="csi-legend-labels">
+          <span class="csi-leg-neg">&minus; Negative deviation</span>
+          <span class="csi-leg-mid">Near baseline (&Delta; 0)</span>
+          <span class="csi-leg-pos">+ Positive deviation</span>
+        </div>
+      </div>
+    </div>
+    <p class="axis-note" id="axisNote" hidden>
+      Axes are <b>frequency</b>, <b>time</b> and <b>signal amplitude</b> &mdash; none of them is
+      space. This is the channel response, not a map of the room; a single
+      transmitter/receiver pair carries no direction information. Drag to rotate,
+      double&#8209;click to toggle spin.
+    </p>
+  </section>
+
+  <!-- ------------------------------------------------------------- timeline -->
+  <section class="panel">
+    <div class="panel-head ref-head">
+      <div class="head-title-group">
+        <span class="accent-bar"></span>
+        <div>
+          <h2>Activity</h2>
+        </div>
+      </div>
+      <div class="head-right">
+        <span class="key"><i class="sw motion"></i>Motion</span>
+        <span class="key"><i class="sw vital"></i>Vitals</span>
+        <span class="legend">dB over noise floor</span>
+      </div>
+    </div>
+    <canvas id="trace" class="trace"></canvas>
+  </section>
+
+  <!-- ------------------------------------------------------------ breathing -->
+  <section class="panel" id="breathPanel">
+    <div class="panel-head ref-head">
+      <div class="head-title-group">
+        <span class="accent-bar"></span>
+        <div>
+          <h2>Respiration</h2>
+        </div>
+      </div>
+      <div class="head-right"><span class="legend ok-pill" id="breathReason">–</span></div>
+    </div>
+    <div class="breath">
+      <div class="bpm">
+        <div class="bpm-value" id="bpmValue">––</div>
+        <div class="bpm-unit">breaths / min</div>
+        <div class="conf"><div class="conf-fill" id="bpmConf"></div></div>
+      </div>
+      <div class="breath-viz">
+        <canvas id="waveform" class="waveform"></canvas>
+        <canvas id="spectrum" class="spectrum"></canvas>
+        <div class="axis"><span>8</span><span>20</span><span>36 bpm</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------------- environment (hidden placeholder preserving IDs for app.js) -->
+  <div id="envPanel" style="display:none !important;" hidden>
+    <span id="envSensors"></span>
+    <span id="envAge"></span>
+    <div id="envAirCard">
+      <i id="envTempSrc"></i>
+      <b id="envTemp"></b>
+      <canvas id="sparkTemp"></canvas>
+      <div id="envTempFoot"></div>
+      <b id="envHum"></b>
+      <canvas id="sparkHum"></canvas>
+      <div id="envHumFoot"></div>
+      <b id="envPress"></b>
+      <canvas id="sparkPress"></canvas>
+      <div id="envPressFoot"></div>
+      <b id="envAir"></b>
+      <canvas id="sparkAir"></canvas>
+      <div id="envAirFoot"></div>
+    </div>
+  </div>
+
+  <!-- --------------------------------------------------------- sub-GHz scan -->
+  <section class="panel grow" id="specPanel" hidden>
+    <div class="panel-head">
+      <h2>433&nbsp;MHz band</h2>
+      <div class="head-right">
+        <span class="legend" id="specRange">–</span>
+        <span class="legend">frequency &rarr; &middot; time &darr;</span>
+      </div>
+    </div>
+    <div class="spec">
+      <canvas id="specFall" class="specfall"></canvas>
+      <div class="spec-side">
+        <div class="spec-title">ACTIVE NOW</div>
+        <div id="specEvents" class="spec-events"><span class="spec-quiet">band quiet</span></div>
+        <div class="spec-title" style="margin-top:12px">PEAK</div>
+        <div class="spec-peak"><b id="specPeak">–</b><i id="specPeakF"></i></div>
+      </div>
+    </div>
+    <div class="axis" id="specAxis"><span>–</span><span>–</span><span>–</span></div>
+    <p class="axis-note">
+      The CC1101 listens here whenever CSI is travelling over USB or the nRF24.
+      Doorbells, weather stations, car remotes and tyre&#8209;pressure sensors all
+      live in this band. A channel is flagged <b>active</b> when it rises 8&nbsp;dB
+      above its own learned quiet level.
+    </p>
+  </section>
+
+  <!-- -------------------------------------------------------------- packets -->
+  <section class="panel grow pkt-panel-ref" id="pktPanel">
+    <div class="panel-head ref-head">
+      <div class="head-title-group">
+        <span class="accent-bar"></span>
+        <div>
+          <h2>Packets</h2>
+          <span class="panel-subtitle">CSI acquisition and pipeline</span>
+        </div>
+      </div>
+      <div class="head-right">
+        <span class="legend" id="pktSource">–</span>
+        <span class="legend" id="pktWire">–</span>
+      </div>
+    </div>
+
+    <!-- Top 4 Primary Cards -->
+    <div class="pkt-hero ref-hero">
+      <div class="pkt-big ref-card">
+        <span class="card-label">DELIVERED</span>
+        <b id="pktTotal">–</b>
+        <i id="pktTotalSub">–</i>
+      </div>
+      <div class="pkt-big ref-card">
+        <span class="card-label">DELIVERY</span>
+        <b id="pktDelivery">–</b>
+        <i id="pktDeliverySub">–</i>
+      </div>
+      <div class="pkt-big ref-card">
+        <span class="card-label">LOST IN TRANSIT</span>
+        <b id="pktLost">–</b>
+        <i id="pktLostSub">–</i>
+      </div>
+      <div class="pkt-big ref-card">
+        <span class="card-label">CORRUPTED</span>
+        <b id="pktBad">–</b>
+        <i id="pktBadSub">–</i>
+      </div>
+    </div>
+
+    <!-- Secondary Row: CSI Frames & Pipeline with Progress Bars -->
+    <div class="ref-sub-row">
+      <div class="ref-csi-block">
+        <span class="ref-block-label">CSI FRAMES</span>
+        <span class="ref-csi-value" id="refCsiVal">–</span>
+      </div>
+      <div class="ref-pipe-divider"></div>
+      <div class="ref-pipe-block">
+        <span class="ref-block-label">PIPELINE</span>
+        <div class="ref-pipe-bars">
+          <div class="ref-bar-row">
+            <span class="ref-bar-name">Used</span>
+            <div class="ref-bar-track">
+              <div class="ref-bar-fill green" id="refUsedBar" style="width: 0%"></div>
+            </div>
+            <span class="ref-bar-stat" id="refUsedStat">–</span>
+          </div>
+          <div class="ref-bar-row">
+            <span class="ref-bar-name">Rejected</span>
+            <div class="ref-bar-track">
+              <div class="ref-bar-fill alert" id="refRejBar" style="width: 0%"></div>
+            </div>
+            <span class="ref-bar-stat" id="refRejStat">–</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Collapsible Advanced Diagnostics Button/Details -->
+    <details class="pkt-advanced ref-advanced" id="pktAdvanced">
+      <summary class="pkt-advanced-toggle ref-adv-toggle">
+        <div class="adv-toggle-left">
+          <span class="pkt-advanced-arrow">›</span>
+          <span class="pkt-advanced-title">Advanced Diagnostics</span>
+          <span class="adv-toggle-sub">(Status, Environment, Log, CRC, COBS, Queue, Stimulus, etc.)</span>
+        </div>
+        <span class="adv-badge">13 metrics</span>
+      </summary>
+      <div class="pkt-advanced-content ref-adv-content">
+        <div class="pkt-group">
+          <div class="pkt-title">BY FRAME TYPE</div>
+          <div class="grid" id="pktTypes"></div>
+        </div>
+
+        <div class="pkt-group">
+          <div class="pkt-title">INTEGRITY &amp; FRAMING</div>
+          <div class="grid" id="pktIntegrity"></div>
+        </div>
+
+        <div class="pkt-group" id="pktRadioGroup" hidden>
+          <div class="pkt-title">RADIO FRAGMENTS &amp; ENCRYPTION</div>
+          <div class="grid" id="pktRadio"></div>
+        </div>
+
+        <div class="pkt-group">
+          <div class="pkt-title">NODE, PIPELINE &amp; STIMULUS</div>
+          <div class="grid" id="pktEndpoints"></div>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <!-- ---------------------------------------------------------------- stats -->
+  <section class="panel grow diag-panel-ref">
+    <div class="panel-head ref-head">
+      <div class="head-title-group">
+        <span class="accent-bar"></span>
+        <div>
+          <h2>Diagnostics</h2>
+          <span class="panel-subtitle">Link and processing health</span>
+        </div>
+      </div>
+      <div class="head-right">
+        <button class="ghost ref-btn" id="btnReset">Reset Baseline</button>
+      </div>
+    </div>
+    <div class="ref-diag-row" id="diag"></div>
+  </section>
+
+</main>
+
+<script src="/static/js/viz.js?v=6"></script>
+<script src="/static/js/surface3d.js?v=6"></script>
+<script src="/static/js/app.js?v=6"></script>
+
+</body>
+</html>
